@@ -1,0 +1,5 @@
+{
+  "name": "MBG Rantang Tracker",
+  "description": "Sistem pelacakan rantang menggunakan QR Code dan algoritma Forward Chaining untuk Dapur MBG.",
+  "requestFramePermissions": ["camera"]
+}

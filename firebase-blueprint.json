@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "rantang": {
+      "title": "Rantang",
+      "description": "Food container entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique QR Code ID" },
+        "status": { "type": "string", "description": "Current status of the rantang" },
+        "lastLocation": { "type": "string", "description": "Last known location" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "currentPelangganId": { "type": "string", "description": "ID of the customer currently holding the rantang" }
+      },
+      "required": ["id", "status"]
+    },
+    "pelanggan": {
+      "title": "Pelanggan",
+      "description": "Customer entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nama": { "type": "string" },
+        "alamat": { "type": "string" }
+      },
+      "required": ["id", "nama"]
+    },
+    "tracking_history": {
+      "title": "Tracking History",
+      "description": "History of status transitions",
+      "type": "object",
+      "properties": {
+        "rantangId": { "type": "string" },
+        "oldStatus": { "type": "string" },
+        "newStatus": { "type": "string" },
+        "action": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "operatorId": { "type": "string" }
+      },
+      "required": ["rantangId", "newStatus", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/rantang/{rantangId}": {
+      "schema": "rantang",
+      "description": "Collection of all food containers"
+    },
+    "/pelanggan/{pelangganId}": {
+      "schema": "pelanggan",
+      "description": "Collection of customers"
+    },
+    "/tracking_history/{historyId}": {
+      "schema": "tracking_history",
+      "description": "Audit log of all movements"
+    }
+  }
+}

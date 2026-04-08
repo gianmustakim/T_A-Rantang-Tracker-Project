@@ -1,0 +1,71 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: rantang
+// Fields:
+//   - id: string (required) - Unique QR Code ID
+//   - status: string (required) - Current status
+//   - lastLocation: string (optional)
+//   - lastUpdated: string (optional)
+//   - currentPelangganId: string (optional)
+//
+// Collection: pelanggan
+// Fields:
+//   - id: string (required)
+//   - nama: string (required)
+//   - alamat: string (optional)
+//
+// Collection: tracking_history
+// Fields:
+//   - rantangId: string (required)
+//   - oldStatus: string (optional)
+//   - newStatus: string (required)
+//   - action: string (optional)
+//   - timestamp: string (required)
+//   - operatorId: string (optional)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isValidRantang(data) {
+      return data.keys().hasAll(['id', 'status']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.status is string && data.status.size() > 0 && data.status.size() < 50;
+    }
+
+    function isValidHistory(data) {
+      return data.keys().hasAll(['rantangId', 'newStatus', 'timestamp']) &&
+             data.rantangId is string &&
+             data.newStatus is string &&
+             data.timestamp is string;
+    }
+
+    match /rantang/{rantangId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidRantang(request.resource.data);
+    }
+
+    match /pelanggan/{pelangganId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+    }
+
+    match /tracking_history/{historyId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidHistory(request.resource.data);
+    }
+    
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
