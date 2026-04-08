@@ -1,1 +1,17 @@
 @import "tailwindcss";
+
+@layer base {
+  /* Fix for html5-qrcode video element */
+  #reader video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    border-radius: 1rem;
+  }
+  
+  /* Hide html5-qrcode's own UI elements if they appear */
+  #reader__dashboard_section,
+  #reader__status_span {
+    display: none !important;
+  }
+}

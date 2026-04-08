@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import * as React from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   collection, 
   onSnapshot, 
@@ -18,7 +19,7 @@ import {
   User 
 } from 'firebase/auth';
 import { db, auth } from './firebase';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { 
   QrCode, 
   LayoutDashboard, 
@@ -31,7 +32,11 @@ import {
   ArrowRight,
   Clock,
   MapPin,
-  Plus
+  Plus,
+  Camera,
+  RefreshCw,
+  Settings,
+  ChevronRight
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -73,6 +78,57 @@ const ACTIONS = [
   'Selesai Dicuci'
 ];
 
+// Error Boundary Component
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: any;
+}
+
+export class ErrorBoundary extends React.Component<any, any> {
+  state = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    const { hasError, error } = (this as any).state;
+    if (hasError) {
+      return (
+        <div className="min-h-screen bg-rose-50 flex items-center justify-center p-6">
+          <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center space-y-4 border border-rose-100">
+            <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600">
+              <AlertCircle className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900">Oops! Terjadi Kesalahan</h1>
+            <p className="text-slate-600 text-sm">
+              Aplikasi mengalami kendala teknis. Silakan muat ulang halaman.
+            </p>
+            <pre className="text-[10px] bg-slate-50 p-3 rounded-lg text-left overflow-auto max-h-32 text-slate-400">
+              {error?.message || String(error)}
+            </pre>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-3 bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 transition-colors"
+            >
+              Muat Ulang Halaman
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return (this as any).props.children;
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner' | 'history'>('dashboard');
@@ -91,19 +147,57 @@ export default function App() {
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [isScannerStarted, setIsScannerStarted] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const [cameras, setCameras] = useState<{id: string, label: string}[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [isScannerInitializing, setIsScannerInitializing] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
+      const msg = event.message || "";
+      
+      // Filter out benign browser/library errors and noise
+      if (msg.includes("play() request was interrupted") || 
+          msg.includes("The media was removed from the document") ||
+          msg.toLowerCase().includes("uncaught") ||
+          msg === "Script error." ||
+          !msg) {
+        return;
+      }
+
       console.error("Global Error Caught:", event);
-      if (event.message.includes("is not valid JSON") || event.message.includes("Unexpected token")) {
-        setError(`Terjadi kesalahan sistem (JSON Parse Error). Silakan muat ulang halaman. Detail: ${event.message}`);
+      
+      // Only show UI error for critical JSON/System failures
+      if (msg.includes("is not valid JSON") || msg.includes("Unexpected token")) {
+        setError(`Terjadi kesalahan sistem (JSON Parse Error). Silakan muat ulang halaman. Detail: ${msg}`);
       }
     };
+
     const handleRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason?.message || String(event.reason);
+      
+      // Filter out noise
+      if (reason.includes("play() request was interrupted") || 
+          reason.includes("The media was removed from the document") ||
+          reason.toLowerCase().includes("uncaught") ||
+          reason === "undefined" ||
+          reason === "null" ||
+          !event.reason) {
+        return;
+      }
+
       console.error("Unhandled Promise Rejection:", event.reason);
-      if (event.reason?.message?.includes("is not valid JSON") || event.reason?.message?.includes("Unexpected token")) {
-        setError(`Terjadi kesalahan sistem (Promise JSON Error). Detail: ${event.reason?.message || "Unknown error"}`);
+      
+      if (reason.includes("is not valid JSON") || reason.includes("Unexpected token")) {
+        setError(`Terjadi kesalahan sistem (Promise JSON Error). Detail: ${reason}`);
       }
     };
     window.addEventListener('error', handleError);
@@ -127,8 +221,12 @@ export default function App() {
 
     const qRantangs = collection(db, 'rantang');
     const unsubRantangs = onSnapshot(qRantangs, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Rantang));
-      setRantangs(data);
+      try {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Rantang));
+        setRantangs(data);
+      } catch (err) {
+        console.error("Error mapping rantangs:", err);
+      }
     }, (err) => {
       console.error("Firestore Rantangs Error:", err);
       setError("Gagal memuat data rantang: " + err.message);
@@ -161,54 +259,133 @@ export default function App() {
   const handleLogout = () => auth.signOut();
 
   // Scanner lifecycle
-  const startScanner = () => {
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        // Only stop if it's actually scanning and the element is still in DOM
+        const element = document.getElementById("reader");
+        if (scannerRef.current.isScanning && element) {
+          await scannerRef.current.stop();
+        }
+        if (isMounted.current) setIsScannerStarted(false);
+      } catch (err: any) {
+        // Ignore specific errors that happen during unmounting or rapid switching
+        const msg = err?.message || String(err);
+        if (
+          msg.includes("removeChild") || 
+          msg.includes("not a child") || 
+          msg.includes("not scanning") ||
+          msg.includes("play() request")
+        ) {
+          // Benign errors during cleanup
+          if (isMounted.current) setIsScannerStarted(false);
+          return;
+        }
+        console.warn("Scanner stop warning:", err);
+      }
+    }
+  };
+
+  const startScanner = async (cameraId?: string) => {
+    if (isScannerInitializing) return;
+    
+    // Ensure we don't have multiple start calls overlapping
+    setIsScannerInitializing(true);
     setScannerError(null);
+    
     const element = document.getElementById("reader");
-    if (!element) return;
+    if (!element) {
+      setIsScannerInitializing(false);
+      return;
+    }
 
     try {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(() => {});
+      if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode("reader");
       }
 
-      const scanner = new Html5QrcodeScanner(
-        "reader",
-        { 
-          fps: 10, 
+      // If already scanning or starting, try to stop first
+      if (scannerRef.current.isScanning) {
+        try {
+          await scannerRef.current.stop();
+        } catch (e) {
+          console.warn("Pre-start stop failed:", e);
+        }
+      }
+
+      if (!isMounted.current) return;
+
+      // Get cameras if not already fetched
+      let devices = cameras;
+      if (devices.length === 0) {
+        const fetchedDevices = await Html5Qrcode.getCameras();
+        if (fetchedDevices && fetchedDevices.length > 0) {
+          devices = fetchedDevices.map(d => ({ id: d.id, label: d.label }));
+          if (isMounted.current) setCameras(devices);
+        } else {
+          throw new Error("Tidak ada kamera ditemukan. Pastikan izin kamera diberikan.");
+        }
+      }
+
+      let targetId = cameraId || selectedCameraId;
+      if (!targetId && devices.length > 0) {
+        const backCamera = devices.find(d => 
+          d.label.toLowerCase().includes('back') || 
+          d.label.toLowerCase().includes('rear') ||
+          d.label.toLowerCase().includes('environment')
+        );
+        targetId = backCamera ? backCamera.id : devices[0].id;
+        if (isMounted.current) setSelectedCameraId(targetId);
+      }
+
+      if (!targetId) throw new Error("Kamera belum dipilih.");
+      if (!isMounted.current) return;
+
+      console.log("Starting scanner with cameraId:", targetId);
+      
+      await scannerRef.current.start(
+        targetId,
+        {
+          fps: 10,
           qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0
         },
-        /* verbose= */ false
+        (decodedText) => {
+          if (isMounted.current) {
+            setScannedId(decodedText);
+            stopScanner();
+          }
+        },
+        () => {}
       );
 
-      scanner.render((decodedText) => {
-        setScannedId(decodedText);
-        scanner.clear().catch(err => console.error("Failed to clear scanner", err));
-        scannerRef.current = null;
-        setIsScannerStarted(false);
-      }, (error) => {
-        // Ignore scanning errors
-      });
-
-      scannerRef.current = scanner;
-      setIsScannerStarted(true);
+      if (isMounted.current) setIsScannerStarted(true);
     } catch (err: any) {
-      setScannerError("Gagal mengakses kamera. Pastikan izin kamera telah diberikan.");
-      console.error(err);
+      const msg = err?.message || String(err);
+      // Filter out benign play interruption errors
+      if (msg.includes("play() request was interrupted") || msg.includes("The media was removed")) {
+        return;
+      }
+      if (isMounted.current) {
+        setScannerError(msg || "Gagal mengakses kamera.");
+      }
+      console.error("Scanner Start Error:", err);
+    } finally {
+      if (isMounted.current) setIsScannerInitializing(false);
     }
   };
 
   useEffect(() => {
-    if (activeTab === 'scanner' && !scannedId && !isScannerStarted) {
-      const timer = setTimeout(startScanner, 500);
+    if (activeTab === 'scanner' && !scannedId) {
+      // Auto start scanner when tab is active
+      const timer = setTimeout(() => {
+        if (isMounted.current) startScanner();
+      }, 500);
       return () => {
         clearTimeout(timer);
-        if (scannerRef.current) {
-          scannerRef.current.clear().catch(err => console.error("Cleanup error", err));
-          scannerRef.current = null;
-          setIsScannerStarted(false);
-        }
+        stopScanner();
       };
+    } else if (activeTab !== 'scanner') {
+      stopScanner();
     }
   }, [activeTab, scannedId]);
 
@@ -450,49 +627,118 @@ export default function App() {
                 <p className="text-slate-500">Arahkan kamera ke QR Code pada rantang</p>
               </div>
 
-              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100 overflow-hidden min-h-[300px] flex flex-col items-center justify-center">
+              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100 overflow-hidden min-h-[400px] flex flex-col items-center">
                 {!scannedId ? (
-                  <div className="w-full space-y-4">
-                    <div className="relative">
-                      <div 
-                        id="reader" 
-                        className={`w-full rounded-2xl overflow-hidden bg-slate-50 ${isFlipped ? '[&_video]:scale-x-[-1]' : ''}`}
-                      ></div>
+                  <div className="w-full space-y-6">
+                    {/* Camera Selection UI */}
+                    <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center text-emerald-600">
+                          <Settings className="w-4 h-4" />
+                        </div>
+                        <span className="text-sm font-bold text-slate-700">Pengaturan Kamera</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <select 
+                          value={selectedCameraId}
+                          onChange={(e) => {
+                            setSelectedCameraId(e.target.value);
+                            startScanner(e.target.value);
+                          }}
+                          className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 max-w-[150px] md:max-w-none"
+                        >
+                          {cameras.length === 0 && <option value="">Mencari Kamera...</option>}
+                          {cameras.map(cam => (
+                            <option key={cam.id} value={cam.id}>{cam.label || `Kamera ${cam.id.slice(0, 4)}`}</option>
+                          ))}
+                        </select>
+                        
+                        <button 
+                          onClick={() => startScanner()}
+                          disabled={isScannerInitializing}
+                          className="p-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                          title="Refresh Kamera"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${isScannerInitializing ? 'animate-spin' : ''}`} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="relative group w-full">
+                      <div className="relative w-full rounded-2xl overflow-hidden bg-slate-950 min-h-[300px]">
+                        {/* The actual scanner div - MUST BE EMPTY for React to not conflict */}
+                        <div 
+                          id="reader" 
+                          className={`w-full h-full absolute inset-0 [&_video]:w-full [&_video]:h-full [&_video]:object-cover ${isFlipped ? '[&_video]:scale-x-[-1]' : ''}`}
+                        ></div>
+
+                        {/* React-managed overlays - OUTSIDE the reader div */}
+                        {isScannerInitializing && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center text-emerald-500 bg-slate-950/80 backdrop-blur-sm z-20">
+                            <RefreshCw className="w-10 h-10 mb-4 animate-spin" />
+                            <p className="text-sm font-medium">Menyiapkan Kamera...</p>
+                          </div>
+                        )}
+                        {!isScannerStarted && !isScannerInitializing && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-8">
+                            <Camera className="w-12 h-12 mb-4 opacity-20" />
+                            <p className="text-sm">Kamera tidak aktif</p>
+                          </div>
+                        )}
+                      </div>
                       
                       {isScannerStarted && (
-                        <button 
-                          onClick={() => setIsFlipped(!isFlipped)}
-                          className="absolute top-4 right-4 bg-white/80 backdrop-blur-sm p-2 rounded-lg shadow-sm hover:bg-white transition-colors z-10 flex items-center gap-2 text-xs font-bold text-slate-700"
-                          title="Flip Kamera"
-                        >
-                          <ArrowRight className={`w-4 h-4 transition-transform ${isFlipped ? 'rotate-180' : ''}`} />
-                          Mirror
-                        </button>
+                        <div className="absolute top-4 right-4 flex gap-2 z-10">
+                          <button 
+                            onClick={() => setIsFlipped(!isFlipped)}
+                            className="bg-white/90 backdrop-blur-sm p-2.5 rounded-xl shadow-lg hover:bg-white transition-all flex items-center gap-2 text-xs font-bold text-slate-700 border border-slate-200"
+                          >
+                            <RefreshCw className={`w-4 h-4 ${isFlipped ? 'rotate-180' : ''}`} />
+                            Mirror
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Scanning Overlay */}
+                      {isScannerStarted && (
+                        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                          <div className="w-64 h-64 border-2 border-emerald-500/50 rounded-3xl relative">
+                            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-emerald-500 rounded-tl-xl"></div>
+                            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-emerald-500 rounded-tr-xl"></div>
+                            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-emerald-500 rounded-bl-xl"></div>
+                            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-emerald-500 rounded-br-xl"></div>
+                            <div className="absolute inset-x-0 top-1/2 h-0.5 bg-emerald-500/30 animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
+                          </div>
+                        </div>
                       )}
                     </div>
                     
-                    {!isScannerStarted && !scannerError && (
-                      <div className="text-center py-10">
-                        <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <QrCode className="w-8 h-8 text-emerald-600" />
-                        </div>
-                        <p className="text-slate-500 mb-4">Kamera belum aktif</p>
+                    {!isScannerStarted && !isScannerInitializing && (
+                      <div className="flex flex-col gap-3">
                         <button 
-                          onClick={startScanner}
-                          className="bg-emerald-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg"
+                          onClick={() => startScanner()}
+                          className="w-full flex items-center justify-center gap-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 px-6 rounded-2xl transition-all shadow-lg shadow-emerald-200"
                         >
-                          Mulai Kamera
+                          <Camera className="w-5 h-5" />
+                          Aktifkan Kamera
                         </button>
+                        <p className="text-center text-xs text-slate-400">
+                          Klik tombol di atas jika kamera tidak otomatis terbuka
+                        </p>
                       </div>
                     )}
 
                     {scannerError && (
-                      <div className="text-center py-10 px-4">
-                        <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-4" />
-                        <p className="text-rose-600 font-medium mb-4">{scannerError}</p>
+                      <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100 flex flex-col items-center text-center gap-3">
+                        <AlertCircle className="w-10 h-10 text-rose-500" />
+                        <div>
+                          <p className="text-rose-700 font-bold text-sm">Masalah Kamera</p>
+                          <p className="text-rose-600 text-xs">{scannerError}</p>
+                        </div>
                         <button 
-                          onClick={startScanner}
-                          className="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold"
+                          onClick={() => startScanner()}
+                          className="text-xs font-bold bg-rose-600 text-white px-4 py-2 rounded-lg"
                         >
                           Coba Lagi
                         </button>
@@ -541,14 +787,22 @@ export default function App() {
                       </div>
                     )}
 
-                    <button
-                      onClick={processTransition}
-                      disabled={!selectedAction}
-                      className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2"
-                    >
-                      Update Status
-                      <ArrowRight className="w-5 h-5" />
-                    </button>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setScannedId(null)}
+                        className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-2xl transition-all"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        onClick={processTransition}
+                        disabled={!selectedAction}
+                        className="flex-[2] py-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2"
+                      >
+                        Update Status
+                        <ArrowRight className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
