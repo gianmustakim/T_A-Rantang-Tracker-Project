@@ -94,6 +94,17 @@ export default function App() {
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
   useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      if (event.message.includes("is not valid JSON") || event.message.includes("Unexpected token")) {
+        console.error("Caught JSON parse error:", event);
+        setError(`Terjadi kesalahan sistem (JSON Parse Error). Silakan muat ulang halaman. Detail: ${event.message}`);
+      }
+    };
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -201,23 +212,26 @@ export default function App() {
         currentStatus = rantangDoc.data().status;
       }
 
-      // 2. Call Forward Chaining API
-      const response = await fetch('/api/forward-chaining', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentStatus, action: selectedAction })
-      });
+      // 2. Forward Chaining Logic (Client-side)
+      const RULES = [
+        { current: 'Di Dapur (Bersih)', action: 'Isi Makanan', next: 'Siap Dikirim' },
+        { current: 'Siap Dikirim', action: 'Scan oleh Kurir', next: 'Dalam Perjalanan' },
+        { current: 'Dalam Perjalanan', action: 'Diterima Pelanggan', next: 'Di Pelanggan' },
+        { current: 'Di Pelanggan', action: 'Diambil Kurir', next: 'Penarikan Kotor' },
+        { current: 'Penarikan Kotor', action: 'Tiba di Dapur', next: 'Proses Cuci' },
+        { current: 'Proses Cuci', action: 'Selesai Dicuci', next: 'Di Dapur (Bersih)' },
+      ];
 
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error);
+      const rule = RULES.find(r => r.current === currentStatus && r.action === selectedAction);
+      
+      if (!rule) {
+        throw new Error(`Transisi tidak valid: Aksi '${selectedAction}' tidak diperbolehkan untuk status '${currentStatus}'`);
       }
 
-      // 3. Update Firestore
-      const newStatus = result.nextStatus;
+      const newStatus = rule.next;
       const timestamp = new Date().toISOString();
 
+      // 3. Update Firestore
       await setDoc(doc(db, 'rantang', scannedId), {
         id: scannedId,
         status: newStatus,

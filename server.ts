@@ -10,6 +10,12 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
+  // Request logging
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+  });
+
   // Forward Chaining Rules
   const RULES = [
     { current: 'Di Dapur (Bersih)', action: 'Isi Makanan', next: 'Siap Dikirim' },
