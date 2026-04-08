@@ -95,13 +95,23 @@ export default function App() {
 
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
+      console.error("Global Error Caught:", event);
       if (event.message.includes("is not valid JSON") || event.message.includes("Unexpected token")) {
-        console.error("Caught JSON parse error:", event);
         setError(`Terjadi kesalahan sistem (JSON Parse Error). Silakan muat ulang halaman. Detail: ${event.message}`);
       }
     };
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      console.error("Unhandled Promise Rejection:", event.reason);
+      if (event.reason?.message?.includes("is not valid JSON") || event.reason?.message?.includes("Unexpected token")) {
+        setError(`Terjadi kesalahan sistem (Promise JSON Error). Detail: ${event.reason?.message || "Unknown error"}`);
+      }
+    };
     window.addEventListener('error', handleError);
-    return () => window.removeEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
   }, []);
 
   useEffect(() => {
@@ -119,12 +129,17 @@ export default function App() {
     const unsubRantangs = onSnapshot(qRantangs, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Rantang));
       setRantangs(data);
+    }, (err) => {
+      console.error("Firestore Rantangs Error:", err);
+      setError("Gagal memuat data rantang: " + err.message);
     });
 
     const qHistory = query(collection(db, 'tracking_history'), orderBy('timestamp', 'desc'), limit(50));
     const unsubHistory = onSnapshot(qHistory, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TrackingHistory));
       setHistory(data);
+    }, (err) => {
+      console.error("Firestore History Error:", err);
     });
 
     return () => {
