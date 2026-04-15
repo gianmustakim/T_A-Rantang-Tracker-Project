@@ -468,7 +468,7 @@ export default function App() {
           <div className="w-20 h-20 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Package className="w-10 h-10 text-emerald-600" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Gian Skripsi Project</h1>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">MBG Rantang Tracker</h1>
           <p className="text-slate-500 mb-8">Sistem pelacakan rantang berbasis QR Code & Forward Chaining</p>
           <button 
             onClick={handleLogin}
@@ -490,7 +490,7 @@ export default function App() {
           <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
             <Package className="w-6 h-6 text-white" />
           </div>
-          <span className="font-bold text-xl text-slate-900">Gian Project</span>
+          <span className="font-bold text-xl text-slate-900">MBG Tracker</span>
         </div>
 
         <nav className="flex-1 space-y-2">
@@ -536,7 +536,7 @@ export default function App() {
       <header className="lg:hidden bg-white border-b border-slate-200 p-4 sticky top-0 z-10 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Package className="w-6 h-6 text-emerald-600" />
-          <span className="font-bold text-lg">Gian Project</span>
+          <span className="font-bold text-lg">MBG Tracker</span>
         </div>
         <img src={user.photoURL || ''} className="w-8 h-8 rounded-full" alt="" referrerPolicy="no-referrer" />
       </header>
@@ -915,7 +915,7 @@ export default function App() {
               <h3 className="text-xl font-bold text-slate-900 mb-4">Registrasi Rantang Baru</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm font-bold text-slate-700 block mb-1">ID Rantang (Contoh: GIAN-001)</label>
+                  <label className="text-sm font-bold text-slate-700 block mb-1">ID Rantang (Contoh: MBG-001)</label>
                   <input 
                     type="text" 
                     value={newRantangId}
