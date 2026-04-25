@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   collection, 
   onSnapshot, 
@@ -36,7 +36,8 @@ import {
   Camera,
   RefreshCw,
   Settings,
-  ChevronRight
+  ChevronRight,
+  PieChart
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -131,7 +132,7 @@ export class ErrorBoundary extends React.Component<any, any> {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner' | 'history'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner' | 'history' | 'analytics'>('dashboard');
   const [rantangs, setRantangs] = useState<Rantang[]>([]);
   const [history, setHistory] = useState<TrackingHistory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -152,6 +153,25 @@ export default function App() {
   const [isScannerInitializing, setIsScannerInitializing] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isMounted = useRef(true);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    // Initialize with all possible statuses from STATUS_COLORS
+    Object.keys(STATUS_COLORS).forEach(status => {
+      counts[status] = 0;
+    });
+    // Count current rantangs
+    rantangs.forEach(r => {
+      if (counts[r.status] !== undefined) {
+        counts[r.status]++;
+      }
+    });
+    return counts;
+  }, [rantangs]);
+
+  useEffect(() => {
+    document.title = "Gian Skripsi Project";
+  }, []);
 
   useEffect(() => {
     isMounted.current = true;
@@ -184,10 +204,14 @@ export default function App() {
     const handleRejection = (event: PromiseRejectionEvent) => {
       const reason = event.reason?.message || String(event.reason);
       
-      // Filter out noise
+      // Filter out noise and common benign errors
       if (reason.includes("play() request was interrupted") || 
           reason.includes("The media was removed from the document") ||
           reason.toLowerCase().includes("uncaught") ||
+          reason.includes("not scanning") ||
+          reason.includes("removeChild") ||
+          reason.includes("alert-check") ||
+          reason.includes("Script error") ||
           reason === "undefined" ||
           reason === "null" ||
           !event.reason) {
@@ -256,7 +280,12 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => auth.signOut();
+  const handleLogout = () => {
+    auth.signOut().catch(err => {
+      console.error("Logout error:", err);
+      setError("Gagal keluar dari akun");
+    });
+  };
 
   // Scanner lifecycle
   const stopScanner = async () => {
@@ -352,7 +381,7 @@ export default function App() {
         (decodedText) => {
           if (isMounted.current) {
             setScannedId(decodedText);
-            stopScanner();
+            stopScanner().catch(() => {});
           }
         },
         () => {}
@@ -378,14 +407,14 @@ export default function App() {
     if (activeTab === 'scanner' && !scannedId) {
       // Auto start scanner when tab is active
       const timer = setTimeout(() => {
-        if (isMounted.current) startScanner();
+        if (isMounted.current) startScanner().catch(() => {});
       }, 500);
       return () => {
         clearTimeout(timer);
-        stopScanner();
+        stopScanner().catch(() => {});
       };
     } else if (activeTab !== 'scanner') {
-      stopScanner();
+      stopScanner().catch(() => {});
     }
   }, [activeTab, scannedId]);
 
@@ -501,6 +530,12 @@ export default function App() {
             label="Dashboard"
           />
           <NavItem 
+            active={activeTab === 'analytics'} 
+            onClick={() => setActiveTab('analytics')}
+            icon={<PieChart className="w-5 h-5" />}
+            label="Monitoring"
+          />
+          <NavItem 
             active={activeTab === 'scanner'} 
             onClick={() => setActiveTab('scanner')}
             icon={<QrCode className="w-5 h-5" />}
@@ -554,8 +589,8 @@ export default function App() {
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold text-slate-900">Status Rantang</h2>
-                  <p className="text-slate-500">Monitoring real-time seluruh unit rantang</p>
+                  <h2 className="text-2xl font-bold text-slate-900">Unit Rantang</h2>
+                  <p className="text-slate-500">Monitor keberadaan seluruh unit rantang</p>
                 </div>
                 <div className="flex gap-2">
                   <button 
@@ -565,10 +600,13 @@ export default function App() {
                     <Plus className="w-4 h-4" />
                     Registrasi Baru
                   </button>
-                  <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
-                    <span className="text-xs text-slate-500 block">Total Rantang</span>
+                  <button 
+                    onClick={() => setActiveTab('analytics')}
+                    className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex flex-col items-start hover:bg-slate-50 transition-colors"
+                  >
+                    <span className="text-xs text-slate-500 block">Total Unit</span>
                     <span className="text-xl font-bold text-emerald-600">{rantangs.length}</span>
-                  </div>
+                  </button>
                 </div>
               </div>
 
@@ -614,6 +652,63 @@ export default function App() {
             </motion.div>
           )}
 
+          {activeTab === 'analytics' && (
+            <motion.div 
+              key="analytics"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-8"
+            >
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Monitoring Status</h2>
+                <p className="text-slate-500">Ringkasan distribusi rantang berdasarkan status saat ini</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Object.entries(STATUS_COLORS).map(([status, colorClass]) => (
+                  <div key={status} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col group hover:shadow-md transition-all">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${colorClass.split(' ')[0]} ${colorClass.split(' ')[1]}`}>
+                        {status === 'Di Dapur (Bersih)' && <CheckCircle2 className="w-6 h-6" />}
+                        {status === 'Siap Dikirim' && <Package className="w-6 h-6" />}
+                        {status === 'Dalam Perjalanan' && <ArrowRight className="w-6 h-6" />}
+                        {status === 'Di Pelanggan' && <MapPin className="w-6 h-6" />}
+                        {status === 'Penarikan Kotor' && <AlertCircle className="w-6 h-6" />}
+                        {status === 'Proses Cuci' && <RefreshCw className="w-6 h-6" />}
+                      </div>
+                      <span className="text-4xl font-black text-slate-900 opacity-20 group-hover:opacity-40 transition-opacity">
+                        {statusCounts[status] || 0}
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900 mb-1">{status}</h3>
+                      <p className="text-sm text-slate-500">
+                        {status === 'Di Dapur (Bersih)' && 'Rantang sudah dicuci dan siap digunakan.'}
+                        {status === 'Siap Dikirim' && 'Rantang menunggu diangkut oleh kurir.'}
+                        {status === 'Dalam Perjalanan' && 'Rantang sedang dalam pengantaran ke pelanggan.'}
+                        {status === 'Di Pelanggan' && 'Rantang berada di tangan pelanggan.'}
+                        {status === 'Penarikan Kotor' && 'Rantang menunggu diambil oleh kurir.'}
+                        {status === 'Proses Cuci' && 'Rantang sedang dalam proses pencucian.'}
+                      </p>
+                    </div>
+                    <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-between">
+                      <span className="text-2xl font-bold text-emerald-600">
+                        {statusCounts[status] || 0} <span className="text-sm font-medium text-slate-400">Unit</span>
+                      </span>
+                      <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full ${colorClass.split(' ')[0]}`} 
+                          style={{ width: `${rantangs.length > 0 ? ((statusCounts[status] || 0) / rantangs.length) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
           {activeTab === 'scanner' && (
             <motion.div 
               key="scanner"
@@ -644,7 +739,7 @@ export default function App() {
                           value={selectedCameraId}
                           onChange={(e) => {
                             setSelectedCameraId(e.target.value);
-                            startScanner(e.target.value);
+                            startScanner(e.target.value).catch(() => {});
                           }}
                           className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 max-w-[150px] md:max-w-none"
                         >
@@ -655,7 +750,7 @@ export default function App() {
                         </select>
                         
                         <button 
-                          onClick={() => startScanner()}
+                          onClick={() => startScanner().catch(() => {})}
                           disabled={isScannerInitializing}
                           className="p-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
                           title="Refresh Kamera"
@@ -881,6 +976,12 @@ export default function App() {
           onClick={() => setActiveTab('dashboard')}
           icon={<LayoutDashboard className="w-6 h-6" />}
           label="Home"
+        />
+        <MobileNavItem 
+          active={activeTab === 'analytics'} 
+          onClick={() => setActiveTab('analytics')}
+          icon={<PieChart className="w-6 h-6" />}
+          label="Status"
         />
         <button 
           onClick={() => setActiveTab('scanner')}
