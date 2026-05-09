@@ -468,7 +468,15 @@ export default function App() {
         targetId,
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 },
+          qrbox: (viewfinderWidth, viewfinderHeight) => {
+            const minEdgePercentage = 0.75;
+            const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+            const qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
+            return {
+                width: qrboxSize,
+                height: qrboxSize
+            };
+          },
         },
         (decodedText) => {
           if (isMounted.current) {
@@ -861,11 +869,11 @@ export default function App() {
                     </div>
 
                     <div className="relative group w-full">
-                      <div className="relative w-full rounded-2xl overflow-hidden bg-slate-950 flex flex-col items-center justify-center min-h-[300px]">
+                      <div className="relative w-full rounded-2xl overflow-hidden bg-slate-950">
                         {/* The actual scanner div - MUST BE EMPTY for React to not conflict */}
                         <div 
                           id="reader" 
-                          className={`w-full [&_video]:w-full ${isFlipped ? '[&_video]:scale-x-[-1]' : ''}`}
+                          className={`w-full ${isFlipped ? '[&_video]:scale-x-[-1]' : ''}`}
                         ></div>
 
                         {/* React-managed overlays - OUTSIDE the reader div */}
@@ -876,7 +884,7 @@ export default function App() {
                           </div>
                         )}
                         {!isScannerStarted && !isScannerInitializing && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-8">
+                          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-8 min-h-[300px]">
                             <Camera className="w-12 h-12 mb-4 opacity-20" />
                             <p className="text-sm">Kamera tidak aktif</p>
                           </div>
