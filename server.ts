@@ -28,11 +28,11 @@ async function startServer() {
 
   // Forward Chaining Rules
   const RULES = [
-    { current: 'Di Dapur (Bersih)', action: 'Isi Makanan', next: 'Siap Dikirim' },
+    { current: 'Di Dapur (Bersih)', action: 'Makanan Terisi', next: 'Siap Dikirim' },
     { current: 'Siap Dikirim', action: 'Scan oleh Kurir', next: 'Dalam Perjalanan' },
-    { current: 'Dalam Perjalanan', action: 'Diterima Pelanggan', next: 'Di Pelanggan' },
-    { current: 'Di Pelanggan', action: 'Diambil Kurir', next: 'Penarikan Kotor' },
-    { current: 'Penarikan Kotor', action: 'Tiba di Dapur', next: 'Proses Cuci' },
+    { current: 'Dalam Perjalanan', action: 'Diterima Sekolah', next: 'Di Sekolah' },
+    { current: 'Di Sekolah', action: 'Diambil Kurir', next: 'Vacant Clean' },
+    { current: 'Vacant Clean', action: 'Tiba di Dapur', next: 'Proses Cuci' },
     { current: 'Proses Cuci', action: 'Selesai Dicuci', next: 'Di Dapur (Bersih)' },
   ];
 

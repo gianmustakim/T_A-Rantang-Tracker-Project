@@ -37,7 +37,11 @@ import {
   RefreshCw,
   Settings,
   ChevronRight,
-  PieChart
+  PieChart,
+  Search,
+  Filter,
+  ArrowUpDown,
+  Printer
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -48,7 +52,7 @@ interface Rantang {
   status: string;
   lastLocation?: string;
   lastUpdated?: any;
-  currentPelangganId?: string;
+  currentSekolahId?: string;
 }
 
 interface TrackingHistory {
@@ -65,19 +69,37 @@ const STATUS_COLORS: Record<string, string> = {
   'Di Dapur (Bersih)': 'bg-emerald-100 text-emerald-700 border-emerald-200',
   'Siap Dikirim': 'bg-blue-100 text-blue-700 border-blue-200',
   'Dalam Perjalanan': 'bg-amber-100 text-amber-700 border-amber-200',
+  'Di Sekolah': 'bg-purple-100 text-purple-700 border-purple-200',
+  'Vacant Clean': 'bg-rose-100 text-rose-700 border-rose-200',
+  'Proses Cuci': 'bg-cyan-100 text-cyan-700 border-cyan-200',
   'Di Pelanggan': 'bg-purple-100 text-purple-700 border-purple-200',
   'Penarikan Kotor': 'bg-rose-100 text-rose-700 border-rose-200',
-  'Proses Cuci': 'bg-cyan-100 text-cyan-700 border-cyan-200',
 };
 
+const DISPLAY_STATUSES = [
+  'Di Dapur (Bersih)',
+  'Siap Dikirim',
+  'Dalam Perjalanan',
+  'Di Sekolah',
+  'Vacant Clean',
+  'Proses Cuci'
+];
+
 const ACTIONS = [
-  'Isi Makanan',
+  'Makanan Terisi',
   'Scan oleh Kurir',
-  'Diterima Pelanggan',
+  'Diterima Sekolah',
   'Diambil Kurir',
   'Tiba di Dapur',
   'Selesai Dicuci'
 ];
+
+const formatStatus = (status?: string) => {
+  if (!status) return status;
+  if (status === 'Di Pelanggan') return 'Di Sekolah';
+  if (status === 'Penarikan Kotor') return 'Vacant Clean';
+  return status;
+};
 
 // Error Boundary Component
 interface ErrorBoundaryProps {
@@ -132,13 +154,14 @@ export class ErrorBoundary extends React.Component<any, any> {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner' | 'history' | 'analytics'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'scanner' | 'history' | 'analytics' | 'settings'>('dashboard');
   const [rantangs, setRantangs] = useState<Rantang[]>([]);
   const [history, setHistory] = useState<TrackingHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
   const [newRantangId, setNewRantangId] = useState('');
   const [viewingQrId, setViewingQrId] = useState<string | null>(null);
   
@@ -154,16 +177,41 @@ export default function App() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isMounted = useRef(true);
 
+  // History tab state
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyFilterAction, setHistoryFilterAction] = useState('Semua Aksi');
+  const [historySortDirection, setHistorySortDirection] = useState<'desc' | 'asc'>('desc');
+
+  const filteredHistory = useMemo(() => {
+    return history
+      .filter(item => {
+        const mappedNew = formatStatus(item.newStatus) || item.newStatus;
+        const mappedOld = item.oldStatus ? formatStatus(item.oldStatus) : null;
+        const matchesSearch = item.rantangId.toLowerCase().includes(historySearch.toLowerCase()) || 
+                              mappedNew.toLowerCase().includes(historySearch.toLowerCase()) ||
+                              (mappedOld && mappedOld.toLowerCase().includes(historySearch.toLowerCase()));
+        const matchesAction = historyFilterAction === 'Semua Aksi' || item.action === historyFilterAction;
+        return matchesSearch && matchesAction;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.timestamp).getTime();
+        const dateB = new Date(b.timestamp).getTime();
+        return historySortDirection === 'desc' ? dateB - dateA : dateA - dateB;
+      });
+  }, [history, historySearch, historyFilterAction, historySortDirection]);
+
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    // Initialize with all possible statuses from STATUS_COLORS
-    Object.keys(STATUS_COLORS).forEach(status => {
+    // Initialize with all possible statuses from DISPLAY_STATUSES
+    DISPLAY_STATUSES.forEach(status => {
       counts[status] = 0;
     });
     // Count current rantangs
     rantangs.forEach(r => {
-      if (counts[r.status] !== undefined) {
-        counts[r.status]++;
+      const mappedStatus = formatStatus(r.status);
+
+      if (counts[mappedStatus] !== undefined) {
+        counts[mappedStatus]++;
       }
     });
     return counts;
@@ -202,23 +250,44 @@ export default function App() {
     };
 
     const handleRejection = (event: PromiseRejectionEvent) => {
-      const reason = event.reason?.message || String(event.reason);
+      // Prevent the default browser UI or framework overlays for unhandled rejections
+      event.preventDefault();
+
+      // Safely extract reason string
+      let reason = "";
+      try {
+        reason = event.reason?.message || String(event.reason);
+      } catch (e) {
+        reason = "Unknown rejection";
+      }
       
       // Filter out noise and common benign errors
-      if (reason.includes("play() request was interrupted") || 
-          reason.includes("The media was removed from the document") ||
-          reason.toLowerCase().includes("uncaught") ||
-          reason.includes("not scanning") ||
-          reason.includes("removeChild") ||
-          reason.includes("alert-check") ||
-          reason.includes("Script error") ||
-          reason === "undefined" ||
-          reason === "null" ||
-          !event.reason) {
+      const noiseStrings = [
+        "play() request was interrupted",
+        "The media was removed from the document",
+        "scan is ongoing",
+        "close it first",
+        "uncaught",
+        "not scanning",
+        "removeChild",
+        "alert-check",
+        "Script error",
+        "undefined",
+        "null",
+        "Permission denied",
+        "Requested device not found",
+        "Already scanning",
+        "ongoing",
+        "interrupted",
+        "AbortError",
+        "JSON"
+      ];
+
+      if (!event.reason || noiseStrings.some(str => reason.toLowerCase().includes(str.toLowerCase()))) {
         return;
       }
 
-      console.error("Unhandled Promise Rejection:", event.reason);
+      console.warn("Unhandled Promise Rejection:", event.reason);
       
       if (reason.includes("is not valid JSON") || reason.includes("Unexpected token")) {
         setError(`Terjadi kesalahan sistem (Promise JSON Error). Detail: ${reason}`);
@@ -291,22 +360,36 @@ export default function App() {
   const stopScanner = async () => {
     if (scannerRef.current) {
       try {
-        // Only stop if it's actually scanning and the element is still in DOM
-        const element = document.getElementById("reader");
-        if (scannerRef.current.isScanning && element) {
-          await scannerRef.current.stop();
+        if (scannerRef.current.isScanning) {
+          try {
+            await scannerRef.current.stop();
+          } catch (stopErr) {
+            // Ignore stop errors, proceed to clear
+          }
         }
+        
+        // Wait a bit more to ensure stop is fully processed by browser
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
+        try {
+          const element = document.getElementById("reader");
+          if (element) {
+            await scannerRef.current.clear();
+          }
+        } catch (e) {
+          // Ignore clear errors
+        }
+        
         if (isMounted.current) setIsScannerStarted(false);
       } catch (err: any) {
-        // Ignore specific errors that happen during unmounting or rapid switching
         const msg = err?.message || String(err);
         if (
           msg.includes("removeChild") || 
           msg.includes("not a child") || 
           msg.includes("not scanning") ||
-          msg.includes("play() request")
+          msg.includes("play() request") ||
+          msg.includes("ongoing")
         ) {
-          // Benign errors during cleanup
           if (isMounted.current) setIsScannerStarted(false);
           return;
         }
@@ -318,31 +401,37 @@ export default function App() {
   const startScanner = async (cameraId?: string) => {
     if (isScannerInitializing) return;
     
-    // Ensure we don't have multiple start calls overlapping
     setIsScannerInitializing(true);
     setScannerError(null);
     
-    const element = document.getElementById("reader");
-    if (!element) {
-      setIsScannerInitializing(false);
-      return;
-    }
-
     try {
+      const element = document.getElementById("reader");
+      if (!element) {
+        setIsScannerInitializing(false);
+        return;
+      }
+
       if (!scannerRef.current) {
         scannerRef.current = new Html5Qrcode("reader");
       }
 
-      // If already scanning or starting, try to stop first
+      // If already scanning, stop it properly first and wait
       if (scannerRef.current.isScanning) {
         try {
           await scannerRef.current.stop();
+          try {
+            await scannerRef.current.clear();
+          } catch (e) {}
+          await new Promise(resolve => setTimeout(resolve, 200)); // More state settle time
         } catch (e) {
           console.warn("Pre-start stop failed:", e);
         }
       }
 
-      if (!isMounted.current) return;
+      if (!isMounted.current) {
+        setIsScannerInitializing(false);
+        return;
+      }
 
       // Get cameras if not already fetched
       let devices = cameras;
@@ -368,7 +457,10 @@ export default function App() {
       }
 
       if (!targetId) throw new Error("Kamera belum dipilih.");
-      if (!isMounted.current) return;
+      if (!isMounted.current) {
+        setIsScannerInitializing(false);
+        return;
+      }
 
       console.log("Starting scanner with cameraId:", targetId);
       
@@ -390,7 +482,6 @@ export default function App() {
       if (isMounted.current) setIsScannerStarted(true);
     } catch (err: any) {
       const msg = err?.message || String(err);
-      // Filter out benign play interruption errors
       if (msg.includes("play() request was interrupted") || msg.includes("The media was removed")) {
         return;
       }
@@ -435,11 +526,11 @@ export default function App() {
 
       // 2. Forward Chaining Logic (Client-side)
       const RULES = [
-        { current: 'Di Dapur (Bersih)', action: 'Isi Makanan', next: 'Siap Dikirim' },
+        { current: 'Di Dapur (Bersih)', action: 'Makanan Terisi', next: 'Siap Dikirim' },
         { current: 'Siap Dikirim', action: 'Scan oleh Kurir', next: 'Dalam Perjalanan' },
-        { current: 'Dalam Perjalanan', action: 'Diterima Pelanggan', next: 'Di Pelanggan' },
-        { current: 'Di Pelanggan', action: 'Diambil Kurir', next: 'Penarikan Kotor' },
-        { current: 'Penarikan Kotor', action: 'Tiba di Dapur', next: 'Proses Cuci' },
+        { current: 'Dalam Perjalanan', action: 'Diterima Sekolah', next: 'Di Sekolah' },
+        { current: 'Di Sekolah', action: 'Diambil Kurir', next: 'Vacant Clean' },
+        { current: 'Vacant Clean', action: 'Tiba di Dapur', next: 'Proses Cuci' },
         { current: 'Proses Cuci', action: 'Selesai Dicuci', next: 'Di Dapur (Bersih)' },
       ];
 
@@ -512,7 +603,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24 lg:pb-0 lg:pl-64">
+    <>
+    <div className="min-h-screen bg-slate-50 pb-24 lg:pb-0 lg:pl-64 print:hidden">
       {/* Sidebar Desktop */}
       <aside className="fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-slate-200 hidden lg:flex flex-col p-6">
         <div className="flex items-center gap-3 mb-10">
@@ -546,6 +638,12 @@ export default function App() {
             onClick={() => setActiveTab('history')}
             icon={<History className="w-5 h-5" />}
             label="Riwayat"
+          />
+          <NavItem 
+            active={activeTab === 'settings'} 
+            onClick={() => setActiveTab('settings')}
+            icon={<Settings className="w-5 h-5" />}
+            label="Pengaturan"
           />
         </nav>
 
@@ -592,13 +690,13 @@ export default function App() {
                   <h2 className="text-2xl font-bold text-slate-900">Unit Rantang</h2>
                   <p className="text-slate-500">Monitor keberadaan seluruh unit rantang</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap md:flex-nowrap">
                   <button 
                     onClick={() => setShowRegisterModal(true)}
                     className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-semibold transition-all shadow-sm"
                   >
                     <Plus className="w-4 h-4" />
-                    Registrasi Baru
+                    <span className="hidden sm:inline">Registrasi Baru</span>
                   </button>
                   <button 
                     onClick={() => setActiveTab('analytics')}
@@ -623,8 +721,8 @@ export default function App() {
                           <p className="text-xs text-slate-400">ID Unit</p>
                         </div>
                       </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_COLORS[rantang.status] || 'bg-slate-100'}`}>
-                        {rantang.status}
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_COLORS[formatStatus(rantang.status) || ''] || 'bg-slate-100'}`}>
+                        {formatStatus(rantang.status)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-50">
@@ -666,15 +764,17 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {Object.entries(STATUS_COLORS).map(([status, colorClass]) => (
+                {DISPLAY_STATUSES.map((status) => {
+                  const colorClass = STATUS_COLORS[status];
+                  return (
                   <div key={status} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col group hover:shadow-md transition-all">
                     <div className="flex justify-between items-start mb-4">
                       <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${colorClass.split(' ')[0]} ${colorClass.split(' ')[1]}`}>
                         {status === 'Di Dapur (Bersih)' && <CheckCircle2 className="w-6 h-6" />}
                         {status === 'Siap Dikirim' && <Package className="w-6 h-6" />}
                         {status === 'Dalam Perjalanan' && <ArrowRight className="w-6 h-6" />}
-                        {status === 'Di Pelanggan' && <MapPin className="w-6 h-6" />}
-                        {status === 'Penarikan Kotor' && <AlertCircle className="w-6 h-6" />}
+                        {status === 'Di Sekolah' && <MapPin className="w-6 h-6" />}
+                        {status === 'Vacant Clean' && <AlertCircle className="w-6 h-6" />}
                         {status === 'Proses Cuci' && <RefreshCw className="w-6 h-6" />}
                       </div>
                       <span className="text-4xl font-black text-slate-900 opacity-20 group-hover:opacity-40 transition-opacity">
@@ -686,9 +786,9 @@ export default function App() {
                       <p className="text-sm text-slate-500">
                         {status === 'Di Dapur (Bersih)' && 'Rantang sudah dicuci dan siap digunakan.'}
                         {status === 'Siap Dikirim' && 'Rantang menunggu diangkut oleh kurir.'}
-                        {status === 'Dalam Perjalanan' && 'Rantang sedang dalam pengantaran ke pelanggan.'}
-                        {status === 'Di Pelanggan' && 'Rantang berada di tangan pelanggan.'}
-                        {status === 'Penarikan Kotor' && 'Rantang menunggu diambil oleh kurir.'}
+                        {status === 'Dalam Perjalanan' && 'Rantang sedang dalam pengantaran ke sekolah.'}
+                        {status === 'Di Sekolah' && 'Rantang berada di sekolah.'}
+                        {status === 'Vacant Clean' && 'Rantang menunggu diambil oleh kurir.'}
                         {status === 'Proses Cuci' && 'Rantang sedang dalam proses pencucian.'}
                       </p>
                     </div>
@@ -704,7 +804,7 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             </motion.div>
           )}
@@ -917,6 +1017,43 @@ export default function App() {
                 <p className="text-slate-500">Log aktivitas pergerakan rantang</p>
               </div>
 
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                  <input
+                    type="text"
+                    placeholder="Cari ID, status..."
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
+                  />
+                </div>
+                
+                <div className="flex gap-4">
+                  <div className="relative flex-1 md:w-48">
+                    <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+                    <select
+                      value={historyFilterAction}
+                      onChange={(e) => setHistoryFilterAction(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all appearance-none"
+                    >
+                      <option value="Semua Aksi">Semua Aksi</option>
+                      {ACTIONS.map(action => (
+                        <option key={action} value={action}>{action}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <button
+                    onClick={() => setHistorySortDirection(prev => prev === 'desc' ? 'asc' : 'desc')}
+                    className="flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-slate-700 whitespace-nowrap"
+                  >
+                    <ArrowUpDown className="w-5 h-5" />
+                    <span className="hidden sm:inline">{historySortDirection === 'desc' ? 'Terbaru' : 'Terlama'}</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
@@ -929,7 +1066,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {history.map((item) => (
+                      {filteredHistory.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                           <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">
                             {format(new Date(item.timestamp), 'dd/MM HH:mm')}
@@ -944,25 +1081,51 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2 text-xs">
-                              <span className="text-slate-400 line-through">{item.oldStatus}</span>
+                              <span className="text-slate-400 line-through">{formatStatus(item.oldStatus)}</span>
                               <ArrowRight className="w-3 h-3 text-slate-300" />
-                              <span className={`px-2 py-0.5 rounded-full font-semibold border ${STATUS_COLORS[item.newStatus]}`}>
-                                {item.newStatus}
+                              <span className={`px-2 py-0.5 rounded-full font-semibold border ${STATUS_COLORS[formatStatus(item.newStatus) || '']}`}>
+                                {formatStatus(item.newStatus)}
                               </span>
                             </div>
                           </td>
                         </tr>
                       ))}
-                      {history.length === 0 && (
+                      {filteredHistory.length === 0 && (
                         <tr>
                           <td colSpan={4} className="px-6 py-10 text-center text-slate-400">
-                            Belum ada riwayat aktivitas.
+                            {history.length === 0 ? "Belum ada riwayat aktivitas." : "Tidak ada hasil yang cocok dengan pencarian Anda."}
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'settings' && (
+            <motion.div
+              key="settings"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-6"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Pengaturan</h2>
+              
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800 mb-1">Cetak QR Code Unit</h3>
+                  <p className="text-slate-500 text-sm">Cetak seluruh QR code rantang yang terdaftar</p>
+                </div>
+                <button 
+                  onClick={() => setShowPrintModal(true)}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-semibold transition-all shadow-sm w-full md:w-auto justify-center"
+                >
+                  <Printer className="w-5 h-5" />
+                  Cetak QR
+                </button>
               </div>
             </motion.div>
           )}
@@ -996,6 +1159,12 @@ export default function App() {
           onClick={() => setActiveTab('history')}
           icon={<History className="w-6 h-6" />}
           label="History"
+        />
+        <MobileNavItem 
+          active={activeTab === 'settings'} 
+          onClick={() => setActiveTab('settings')}
+          icon={<Settings className="w-6 h-6" />}
+          label="Settings"
         />
       </nav>
 
@@ -1119,7 +1288,7 @@ export default function App() {
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-24 left-4 right-4 lg:left-auto lg:right-8 lg:bottom-8 lg:max-w-md bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-4 z-50"
+            className="fixed bottom-24 left-4 right-4 lg:left-auto lg:right-8 lg:bottom-8 lg:max-w-md bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-4 z-[200]"
           >
             <CheckCircle2 className="w-6 h-6 shrink-0" />
             <p className="text-sm font-medium">{success}</p>
@@ -1130,6 +1299,75 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+
+      {/* Print Modal Overlay */}
+      {showPrintModal && (
+        <div className="fixed inset-0 z-[100] bg-slate-50 overflow-y-auto print:bg-white text-slate-900">
+          <div className="max-w-5xl mx-auto p-4 sm:p-8">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 print:hidden bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+              <div className="flex-1">
+                <h2 className="text-2xl sm:text-3xl font-bold mb-2">Cetak QR Code</h2>
+                <p className="text-slate-500 text-sm sm:text-base">
+                  Tekan <kbd className="bg-slate-100 px-2 py-1 rounded text-slate-800 font-mono">Ctrl</kbd> + <kbd className="bg-slate-100 px-2 py-1 rounded text-slate-800 font-mono">P</kbd> (Windows) atau <kbd className="bg-slate-100 px-2 py-1 rounded text-slate-800 font-mono">Cmd</kbd> + <kbd className="bg-slate-100 px-2 py-1 rounded text-slate-800 font-mono">P</kbd> (Mac) untuk mencetak.
+                  <br/>Jika tombol cetak tidak beraksi (karena limitasi iFrame), gunakan pintasan keyboard di atas atau buka Tab Baru.
+                </p>
+              </div>
+              <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full md:w-auto shrink-0">
+                <button
+                  onClick={() => setShowPrintModal(false)}
+                  className="flex-1 sm:flex-none px-6 py-3 border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold rounded-xl transition-all text-center whitespace-nowrap"
+                >
+                  Tutup
+                </button>
+                <button
+                  onClick={() => {
+                    try {
+                      window.print();
+                      setTimeout(() => {
+                        setSuccess("Jika dialog cetak tidak muncul, gunakan pintasan keyboard Ctrl+P / Cmd+P atau buka aplikasi di Tab Baru.");
+                      }, 500);
+                    } catch (e) {
+                      setSuccess("Gunakan pintasan keyboard Ctrl+P / Cmd+P untuk mencetak.");
+                    }
+                  }}
+                  className="flex-1 sm:flex-none flex justify-center items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-all shadow-sm whitespace-nowrap"
+                >
+                  <Printer className="w-5 h-5" />
+                  Cetak Sekarang
+                </button>
+              </div>
+            </div>
+
+            {/* Print Content Area */}
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 print:shadow-none print:border-none print:p-0">
+              <div className="text-center mb-10 border-b border-slate-200 pb-8">
+                <h1 className="text-3xl font-bold mb-2">Katalog QR Code Unit Rantang</h1>
+                <p className="text-slate-500">Total {rantangs.length} Unit Terdaftar</p>
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 md:gap-8 print:flex print:flex-wrap print:gap-4">
+                {rantangs.map((rantang) => (
+                  <div key={rantang.id} className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 rounded-2xl print:border-solid print:w-[150px]" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+                    <img 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${rantang.id}`} 
+                      alt={`QR ${rantang.id}`}
+                      className="w-24 h-24 sm:w-32 sm:h-32 mb-4"
+                    />
+                    <h3 className="font-bold text-slate-900 text-xs sm:text-sm text-center break-all">{rantang.id}</h3>
+                  </div>
+                ))}
+              </div>
+              {rantangs.length === 0 && (
+                <div className="text-center py-12 text-slate-400">
+                  <QrCode className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                  <p>Belum ada rantang terdaftar.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
