@@ -693,10 +693,10 @@ export default function App() {
                 <div className="flex gap-2 flex-wrap md:flex-nowrap">
                   <button 
                     onClick={() => setShowRegisterModal(true)}
-                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-semibold transition-all shadow-sm"
+                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-semibold transition-all shadow-sm flex-1 md:flex-none justify-center"
                   >
                     <Plus className="w-4 h-4" />
-                    <span className="hidden sm:inline">Registrasi Baru</span>
+                    <span>Registrasi Baru</span>
                   </button>
                   <button 
                     onClick={() => setActiveTab('analytics')}
