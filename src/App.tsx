@@ -1302,7 +1302,7 @@ export default function App() {
 
       {/* Print Modal Overlay */}
       {showPrintModal && (
-        <div className="fixed inset-0 z-[100] bg-slate-50 overflow-y-auto print:bg-white text-slate-900">
+        <div className="fixed inset-0 z-[100] bg-slate-50 overflow-y-auto print:relative print:overflow-visible print:bg-white print:p-0 print:m-0 text-slate-900">
           <div className="max-w-5xl mx-auto p-4 sm:p-8">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 print:hidden bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
               <div className="flex-1">
