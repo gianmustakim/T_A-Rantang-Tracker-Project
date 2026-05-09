@@ -861,11 +861,11 @@ export default function App() {
                     </div>
 
                     <div className="relative group w-full">
-                      <div className="relative w-full rounded-2xl overflow-hidden bg-slate-950 min-h-[300px]">
+                      <div className="relative w-full rounded-2xl overflow-hidden bg-slate-950 flex flex-col items-center justify-center min-h-[300px]">
                         {/* The actual scanner div - MUST BE EMPTY for React to not conflict */}
                         <div 
                           id="reader" 
-                          className={`w-full h-full absolute inset-0 [&_video]:w-full [&_video]:h-full [&_video]:object-cover ${isFlipped ? '[&_video]:scale-x-[-1]' : ''}`}
+                          className={`w-full [&_video]:w-full ${isFlipped ? '[&_video]:scale-x-[-1]' : ''}`}
                         ></div>
 
                         {/* React-managed overlays - OUTSIDE the reader div */}
